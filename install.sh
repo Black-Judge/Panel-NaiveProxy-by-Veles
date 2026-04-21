@@ -9,7 +9,7 @@ export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 
-REPO_URL="https://github.com/Black-Judge/Panel-NaiveProxy-by-Veles"
+REPO_URL="https://github.com/Black-Judge/Panel-NaiveProxy-by-RIXXX"
 PANEL_DIR="/opt/naiveproxy-panel"
 SERVICE_NAME="naiveproxy-panel"
 INTERNAL_PORT=3000
@@ -103,7 +103,7 @@ if [[ -d "$PANEL_DIR" && -f "${PANEL_DIR}/panel/data/config.json" ]]; then
         echo -e "${GREEN}${BOLD}✅ Панель NaiveProxy установлена и работает.${RESET}\n"
         echo -e "Выберите действие:"
         echo -e "  ${CYAN}1)${RESET} 👥 Управление пользователями (${BOLD}${user_count}${RESET} шт.)"
-        echo -e "  ${CYAN}2)${RESET} 🔄 Проверить статусы сервисов (PM2 & Caddy)"
+        echo -e "  ${CYAN}2)${RESET} ⚙️ Управление сервисами и логи (Caddy & PM2)"
         echo -e "  ${CYAN}3)${RESET} ⬆ Обновить панель управления (GitHub Pull)"
         echo -e "  ${RED}4)${RESET} 🗑 Чистое удаление (Uninstall)"
         echo -e "  ${CYAN}0)${RESET} Выход"
@@ -196,12 +196,65 @@ if [[ -d "$PANEL_DIR" && -f "${PANEL_DIR}/panel/data/config.json" ]]; then
                 done
                 ;;
             2)
-                echo ""
-                pm2 status "$SERVICE_NAME"
-                echo ""
-                systemctl status caddy --no-pager | head -n 10
-                echo ""
-                read -rp "Нажмите Enter для возврата..."
+                while true; do
+                    clear
+                    echo -e "${PURPLE}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
+                    echo -e "${PURPLE}${BOLD}║                Управление сервисами и логи               ║${RESET}"
+                    echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}\n"
+
+                    echo -e "  ${CYAN}1)${RESET} 📊 Посмотреть статусы (Caddy & Панель)"
+                    echo -e "  ${GREEN}2)${RESET} 🔄 Перезапустить ядро NaiveProxy (Caddy)"
+                    echo -e "  ${GREEN}3)${RESET} 🔄 Перезапустить веб-панель (PM2)"
+                    echo -e "  ${YELLOW}4)${RESET} 📋 Живые логи ядра NaiveProxy (Caddy)"
+                    echo -e "  ${YELLOW}5)${RESET} 📋 Живые логи веб-панели (PM2)"
+                    echo -e "  ${RED}6)${RESET} 🛑 Остановить сервисы"
+                    echo -e "  ${GREEN}7)${RESET} ▶ Запустить сервисы"
+                    echo -e "  ${CYAN}0)${RESET} 🔙 Назад"
+                    echo ""
+                    read -rp "Выбор: " s_choice
+
+                    case "$s_choice" in
+                        1)
+                            echo -e "\n${BOLD}Статус PM2 (Панель):${RESET}"
+                            pm2 status "$SERVICE_NAME"
+                            echo -e "\n${BOLD}Статус Caddy (NaiveProxy):${RESET}"
+                            systemctl status caddy --no-pager | head -n 10
+                            echo ""
+                            read -rp "Нажмите Enter для возврата..."
+                            ;;
+                        2)
+                            systemctl restart caddy
+                            log_ok "Ядро Caddy перезапущено!"
+                            sleep 1.5
+                            ;;
+                        3)
+                            pm2 restart "$SERVICE_NAME"
+                            log_ok "Веб-панель перезапущена!"
+                            sleep 1.5
+                            ;;
+                        4)
+                            echo -e "\n${YELLOW}Нажмите Ctrl+C для выхода из режима логов${RESET}\n"
+                            journalctl -u caddy -f -n 50
+                            ;;
+                        5)
+                            echo -e "\n${YELLOW}Нажмите Ctrl+C для выхода из режима логов${RESET}\n"
+                            pm2 logs "$SERVICE_NAME"
+                            ;;
+                        6)
+                            systemctl stop caddy
+                            pm2 stop "$SERVICE_NAME" >/dev/null 2>&1
+                            log_warn "Сервисы остановлены!"
+                            sleep 1.5
+                            ;;
+                        7)
+                            systemctl start caddy
+                            pm2 start "$SERVICE_NAME" >/dev/null 2>&1
+                            log_ok "Сервисы запущены!"
+                            sleep 1.5
+                            ;;
+                        0) break ;;
+                    esac
+                done
                 ;;
             3)
                 log_step "Обновление панели управления..."

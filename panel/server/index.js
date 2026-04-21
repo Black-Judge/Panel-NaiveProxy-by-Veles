@@ -13,13 +13,15 @@ const path = require('path');
 // ─────────────────────────────────────────────
 const envPath = path.join(__dirname, '../.env');
 if (fs.existsSync(envPath)) {
-  const envFile = fs.readFileSync(envPath, 'utf8');
-  envFile.split('\n').forEach(line => {
-    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
-    if (match) {
-      process.env[match[1]] = match[2] ? match[2].trim() : '';
-    }
-  });
+  try {
+    const envFile = fs.readFileSync(envPath, 'utf8');
+    envFile.split('\n').forEach(line => {
+      const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+      if (match) {
+        process.env[match[1]] = match[2] ? match[2].trim() : '';
+      }
+    });
+  } catch(e) { console.error("Ошибка чтения .env файла", e); }
 }
 
 const app = express();
@@ -29,53 +31,75 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, '../data/config.json');
 const USERS_FILE = path.join(__dirname, '../data/users.json');
 
-// Ensure data directory exists
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-// Initialize config
+// 🛡 ГЛОБАЛЬНАЯ БРОНЯ ОТ ПАДЕНИЙ (Titanium Error Handling)
+process.on('uncaughtException', (err) => console.error('Критическая ошибка (перехвачена):', err));
+process.on('unhandledRejection', (err) => console.error('Необработанный промис (перехвачен):', err));
+
+function createDefaultConfig() {
+  const defaultConfig = {
+    installed: false,
+    domain: '',
+    email: '',
+    serverIp: '',
+    adminPassword: '',
+    proxyUsers: []
+  };
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(defaultConfig, null, 2)); } catch(e){}
+  return defaultConfig;
+}
+
 function loadConfig() {
-  if (!fs.existsSync(DATA_FILE)) {
-    const defaultConfig = {
-      installed: false,
-      domain: '',
-      email: '',
-      serverIp: '',
-      adminPassword: '',
-      proxyUsers: []
-    };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(defaultConfig, null, 2));
-    return defaultConfig;
+  if (!fs.existsSync(DATA_FILE)) return createDefaultConfig();
+  try {
+    const cfg = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    if (!cfg.proxyUsers) cfg.proxyUsers = [];
+    
+    // 🧹 САНИТАРНАЯ ОЧИСТКА: Удаляем все null, пустые строки и битые объекты
+    cfg.proxyUsers = cfg.proxyUsers.filter(u => u && typeof u === 'object' && u.username);
+    
+    return cfg;
+  } catch (err) {
+    console.error('Файл config.json поврежден. Сбрасываем к дефолту.', err);
+    return createDefaultConfig();
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
 }
 
 function saveConfig(config) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(config, null, 2));
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(config, null, 2)); } 
+  catch (e) { console.error("Ошибка сохранения конфига:", e); }
+}
+
+function createDefaultUsers() {
+  const initialUser = process.env.ADMIN_USER || 'admin';
+  const initialPass = process.env.ADMIN_PASS || 'admin';
+  const defaultUsers = {
+    [initialUser]: {
+      password: bcrypt.hashSync(initialPass, 10),
+      role: 'admin'
+    }
+  };
+  try { fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2)); } catch(e){}
+  return defaultUsers;
 }
 
 function loadUsers() {
-  if (!fs.existsSync(USERS_FILE)) {
-    const initialUser = process.env.ADMIN_USER || 'admin';
-    const initialPass = process.env.ADMIN_PASS || 'admin';
-
-    const defaultUsers = {
-      [initialUser]: {
-        password: bcrypt.hashSync(initialPass, 10),
-        role: 'admin'
-      }
-    };
-    fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2));
-    return defaultUsers;
+  if (!fs.existsSync(USERS_FILE)) return createDefaultUsers();
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch (err) {
+    console.error('Файл users.json поврежден. Восстанавливаем из .env', err);
+    return createDefaultUsers();
   }
-  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
 }
 
 function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2)); }
+  catch (e) { console.error("Ошибка сохранения юзеров:", e); }
 }
 
-// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -87,11 +111,8 @@ app.use(session({
 }));
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Auth middleware
 function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated) {
-    return next();
-  }
+  if (req.session && req.session.authenticated) return next();
   res.status(401).json({ error: 'Unauthorized' });
 }
 
@@ -99,17 +120,22 @@ function requireAuth(req, res, next) {
 //  AUTH ROUTES
 // ─────────────────────────────────────────────
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  const users = loadUsers();
-  const user = users[username];
-  if (!user) return res.json({ success: false, message: 'Неверный логин или пароль' });
-  if (!bcrypt.compareSync(password, user.password)) {
-    return res.json({ success: false, message: 'Неверный логин или пароль' });
+  try {
+    const { username, password } = req.body;
+    const users = loadUsers();
+    const user = users[username];
+    if (!user) return res.json({ success: false, message: 'Неверный логин или пароль' });
+    if (!bcrypt.compareSync(password, user.password)) {
+      return res.json({ success: false, message: 'Неверный логин или пароль' });
+    }
+    req.session.authenticated = true;
+    req.session.username = username;
+    req.session.role = user.role;
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Login error:", e);
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
   }
-  req.session.authenticated = true;
-  req.session.username = username;
-  req.session.role = user.role;
-  res.json({ success: true });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -126,29 +152,29 @@ app.get('/api/me', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/config', requireAuth, (req, res) => {
   const config = loadConfig();
-  const safe = { ...config };
-  res.json(safe);
+  res.json({ ...config });
 });
 
 app.post('/api/config/change-password', requireAuth, (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) {
-    return res.json({ success: false, message: 'Заполните все поля' });
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.json({ success: false, message: 'Заполните все поля' });
+    if (newPassword.length < 6) return res.json({ success: false, message: 'Минимум 6 символов' });
+    
+    const users = loadUsers();
+    const user = users[req.session.username];
+    if (!user) return res.json({ success: false, message: 'Пользователь не найден' });
+    if (!bcrypt.compareSync(currentPassword, user.password)) {
+      return res.json({ success: false, message: 'Текущий пароль неверен' });
+    }
+    
+    users[req.session.username].password = bcrypt.hashSync(newPassword, 10);
+    saveUsers(users);
+    res.json({ success: true, message: 'Пароль успешно изменён' });
+  } catch (e) {
+    console.error("Change pass error:", e);
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
   }
-  if (newPassword.length < 6) {
-    return res.json({ success: false, message: 'Новый пароль минимум 6 символов' });
-  }
-  const users = loadUsers();
-  const user = users[req.session.username];
-  if (!user) {
-    return res.json({ success: false, message: 'Пользователь не найден' });
-  }
-  if (!bcrypt.compareSync(currentPassword, user.password)) {
-    return res.json({ success: false, message: 'Текущий пароль неверен' });
-  }
-  users[req.session.username].password = bcrypt.hashSync(newPassword, 10);
-  saveUsers(users);
-  res.json({ success: true, message: 'Пароль успешно изменён' });
 });
 
 // ─────────────────────────────────────────────
@@ -160,56 +186,62 @@ app.get('/api/proxy-users', requireAuth, (req, res) => {
 });
 
 app.post('/api/proxy-users/add', requireAuth, (req, res) => {
-  // ПРИНИМАЕМ ИМЯ ПРОФИЛЯ
-  const { username, password, profileName } = req.body;
-  
-  if (!username || !password) {
-    return res.json({ success: false, message: 'Логин и пароль обязательны' });
-  }
-  const config = loadConfig();
-  if (!config.proxyUsers) config.proxyUsers = [];
-  
-  if (config.proxyUsers.find(u => u.username === username)) {
-    return res.json({ success: false, message: 'Пользователь уже существует' });
-  }
-  
-  // Если профиль пустой - ставим дефолт. Иначе заменяем пробелы на безопасные
-  let safeProfile = profileName ? profileName.replace(/ /g, '_') : `Naive_${username}`;
-
-  // СОХРАНЯЕМ ИМЯ ПРОФИЛЯ В БАЗУ
-  config.proxyUsers.push({ 
-    username, 
-    password, 
-    profileName: safeProfile,
-    createdAt: new Date().toISOString() 
-  });
-  saveConfig(config);
-  
-  if (config.installed) {
-    updateCaddyfile(config, res, () => {
-      res.json({ success: true, link: `naive+https://${username}:${password}@${config.domain}:443#${encodeURIComponent(safeProfile)}` });
+  try {
+    const { username, password, profileName } = req.body;
+    if (!username || !password) return res.json({ success: false, message: 'Логин и пароль обязательны' });
+    
+    const config = loadConfig();
+    if (config.proxyUsers.find(u => u.username === username)) {
+      return res.json({ success: false, message: 'Пользователь уже существует' });
+    }
+    
+    let safeProfile = profileName ? profileName.replace(/ /g, '_') : `Naive_${username}`;
+    config.proxyUsers.push({ 
+      username, 
+      password, 
+      profileName: safeProfile,
+      createdAt: new Date().toISOString() 
     });
-  } else {
-    res.json({ success: true, link: username + ':' + password });
+    
+    saveConfig(config);
+    
+    if (config.installed) {
+      updateCaddyfile(config, res, () => {
+        res.json({ success: true, link: `naive+https://${username}:${password}@${config.domain}:443#${encodeURIComponent(safeProfile)}` });
+      });
+    } else {
+      res.json({ success: true, link: username + ':' + password });
+    }
+  } catch (e) {
+    console.error("Add user error:", e);
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
   }
 });
 
 app.delete('/api/proxy-users/:username', requireAuth, (req, res) => {
-  const { username } = req.params;
-  const config = loadConfig();
-  const before = (config.proxyUsers || []).length;
-  config.proxyUsers = (config.proxyUsers || []).filter(u => u.username !== username);
-  if (config.proxyUsers.length === before) {
-    return res.json({ success: false, message: 'Пользователь не найден' });
-  }
-  saveConfig(config);
-  
-  if (config.installed) {
-    updateCaddyfile(config, res, () => {
+  try {
+    const { username } = req.params;
+    const config = loadConfig();
+    const before = config.proxyUsers.length;
+    
+    config.proxyUsers = config.proxyUsers.filter(u => u.username !== username);
+    
+    if (config.proxyUsers.length === before) {
+      return res.json({ success: false, message: 'Пользователь не найден' });
+    }
+    
+    saveConfig(config);
+    
+    if (config.installed) {
+      updateCaddyfile(config, res, () => {
+        res.json({ success: true });
+      });
+    } else {
       res.json({ success: true });
-    });
-  } else {
-    res.json({ success: true });
+    }
+  } catch (e) {
+    console.error("Delete user error:", e);
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
   }
 });
 
@@ -217,39 +249,44 @@ app.delete('/api/proxy-users/:username', requireAuth, (req, res) => {
 //  SERVER STATUS
 // ─────────────────────────────────────────────
 app.get('/api/status', requireAuth, (req, res) => {
-  const config = loadConfig();
-  if (!config.installed) {
-    return res.json({ installed: false, status: 'not_installed' });
-  }
-  
-  exec('systemctl is-active caddy', (error, stdout) => {
-    const running = stdout.trim() === 'active';
-    res.json({
-      installed: true,
-      status: running ? 'running' : 'stopped',
-      domain: config.domain,
-      serverIp: config.serverIp,
-      email: config.email,
-      usersCount: (config.proxyUsers || []).length
+  try {
+    const config = loadConfig();
+    if (!config.installed) return res.json({ installed: false, status: 'not_installed' });
+    
+    exec('systemctl is-active caddy', (error, stdout) => {
+      const running = stdout.trim() === 'active';
+      res.json({
+        installed: true,
+        status: running ? 'running' : 'stopped',
+        domain: config.domain,
+        serverIp: config.serverIp,
+        email: config.email,
+        usersCount: (config.proxyUsers || []).length
+      });
     });
-  });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
+  }
 });
 
 app.post('/api/service/:action', requireAuth, (req, res) => {
-  const { action } = req.params;
-  
-  if (!['start', 'stop', 'restart'].includes(action)) {
-    return res.status(400).json({ error: 'Invalid action' });
-  }
-  
-  exec(`systemctl ${action} caddy`, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`[Systemctl Error]: ${stderr || error.message}`);
-      res.json({ success: false, message: `Ошибка выполнения: ${action}` });
-    } else {
-      res.json({ success: true, message: `Команда ${action} успешно выполнена` });
+  try {
+    const { action } = req.params;
+    if (!['start', 'stop', 'restart'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action' });
     }
-  });
+    
+    exec(`systemctl ${action} caddy`, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`[Systemctl Error]: ${stderr || error.message}`);
+        res.json({ success: false, message: `Ошибка выполнения: ${action}` });
+      } else {
+        res.json({ success: true, message: `Команда ${action} успешно выполнена` });
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -259,6 +296,7 @@ function updateCaddyfile(config, res, callback) {
   let basicAuthLines = '';
   if (config.proxyUsers && config.proxyUsers.length > 0) {
     basicAuthLines = config.proxyUsers
+      .filter(u => u && u.username && u.password)
       .map(u => `    basic_auth ${u.username} ${u.password}`)
       .join('\n');
   }
