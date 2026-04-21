@@ -9,7 +9,7 @@ export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 
-REPO_URL="https://github.com/Black-Judge/Panel-NaiveProxy-by-RIXXX"
+REPO_URL="https://github.com/Black-Judge/Panel-NaiveProxy-by-Veles"
 PANEL_DIR="/opt/naiveproxy-panel"
 SERVICE_NAME="naiveproxy-panel"
 INTERNAL_PORT=3000
