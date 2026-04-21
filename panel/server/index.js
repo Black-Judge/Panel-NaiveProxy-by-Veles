@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ─────────────────────────────────────────────
-// РУЧНОЙ ПАРСЕР .ENV
+// РУЧНОЙ ПАРСЕР .ENV (Для независимости от PM2)
 // ─────────────────────────────────────────────
 const envPath = path.join(__dirname, '../.env');
 if (fs.existsSync(envPath)) {
@@ -182,6 +182,7 @@ app.post('/api/proxy-users/add', requireAuth, (req, res) => {
     saveConfig(config);
     
     if (config.installed) {
+      // ИСПРАВЛЕНИЕ: Убрали лишний аргумент 'res' из вызова функции
       updateCaddyfile(config, () => {
         res.json({ success: true, link: `naive+https://${username}:${password}@${config.domain}:443#${encodeURIComponent(safeProfile)}` });
       });
@@ -207,6 +208,7 @@ app.delete('/api/proxy-users/:username', requireAuth, (req, res) => {
     saveConfig(config);
     
     if (config.installed) {
+      // ИСПРАВЛЕНИЕ: Убрали лишний аргумент 'res' из вызова функции
       updateCaddyfile(config, () => {
         res.json({ success: true });
       });
@@ -256,7 +258,7 @@ app.post('/api/service/:action', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 //  ИСПРАВЛЕННЫЙ УМНЫЙ ГЕНЕРАТОР CADDYFILE
 // ─────────────────────────────────────────────
-function updateCaddyfile(config, res, callback) {
+function updateCaddyfile(config, callback) {
   let basicAuthLines = '';
   if (config.proxyUsers && config.proxyUsers.length > 0) {
     basicAuthLines = config.proxyUsers
@@ -265,7 +267,6 @@ function updateCaddyfile(config, res, callback) {
       .join('\n');
   }
 
-  // 1. Умный TLS с защитой от пустого email
   let tlsLine = '';
   const certPath = `/etc/letsencrypt/live/${config.domain}/fullchain.pem`;
   const keyPath = `/etc/letsencrypt/live/${config.domain}/privkey.pem`;
@@ -275,7 +276,6 @@ function updateCaddyfile(config, res, callback) {
   } else if (config.email && config.email.trim() !== '') {
     tlsLine = `tls ${config.email.trim()}`;
   } else {
-    // ЖЕЛЕЗОБЕТОННЫЙ ФОЛЛБЕК (если email пустой)
     tlsLine = `tls admin@${config.domain}`; 
   }
 
@@ -299,7 +299,6 @@ ${basicAuthLines}
 }
 `;
 
-  // 2. ВОССТАНОВЛЕНИЕ БЛОКА ПАНЕЛИ
   if (config.accessMode === "2" && config.panelDomain) {
     let pTlsLine = '';
     const pCertPath = `/etc/letsencrypt/live/${config.panelDomain}/fullchain.pem`;
