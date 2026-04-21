@@ -9,6 +9,20 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// ─────────────────────────────────────────────
+// РУЧНОЙ ПАРСЕР .ENV (Для независимости от PM2)
+// ─────────────────────────────────────────────
+const envPath = path.join(__dirname, '../.env');
+if (fs.existsSync(envPath)) {
+  const envFile = fs.readFileSync(envPath, 'utf8');
+  envFile.split('\n').forEach(line => {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (match) {
+      process.env[match[1]] = match[2] ? match[2].trim() : '';
+    }
+  });
+}
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -70,7 +84,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
-  secret: 'naiveproxy-rixxx-secret-2024',
+  secret: 'naiveproxy-veles-secret-2026',
   resave: false,
   saveUninitialized: false,
   cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
@@ -430,7 +444,7 @@ app.get('*', (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n╔══════════════════════════════════════╗`);
-  console.log(`║   Panel NaiveProxy by RIXXX          ║`);
+  console.log(`║   Panel NaiveProxy by Veles          ║`);
   console.log(`║   Running on http://0.0.0.0:${PORT}     ║`);
   console.log(`╚══════════════════════════════════════╝\n`);
 });
