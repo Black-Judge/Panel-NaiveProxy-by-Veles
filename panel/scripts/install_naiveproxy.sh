@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-#  NaiveProxy Auto-Installer — by RIXXX
-#  Panel NaiveProxy by RIXXX
+#  NaiveProxy Auto-Installer — by Veles
+#  Panel NaiveProxy by Veles
 #  ENV: NAIVE_DOMAIN, NAIVE_EMAIL, NAIVE_LOGIN, NAIVE_PASSWORD
 # ═══════════════════════════════════════════════════════
 
@@ -164,8 +164,9 @@ cd /root
 # Удаляем старый бинарник если есть
 rm -f /root/caddy
 
+# Подключаем ТВОЙ форк плагина
 /root/go/bin/xcaddy build \
-  --with github.com/caddyserver/forwardproxy@caddy2=github.com/klzgrad/forwardproxy@naive \
+  --with github.com/caddyserver/forwardproxy@caddy2=github.com/Black-Judge/forwardproxy@naive \
   2>&1 | grep -v "^$" | while IFS= read -r line; do
     echo "  $line"
   done
@@ -250,7 +251,7 @@ sleep 1
 
 cat > /etc/systemd/system/caddy.service << 'SERVICEEOF'
 [Unit]
-Description=Caddy with NaiveProxy (by RIXXX)
+Description=Caddy with NaiveProxy (by Veles)
 Documentation=https://caddyserver.com/docs/
 After=network.target network-online.target
 Requires=network-online.target
@@ -328,7 +329,6 @@ if [[ -d "$PANEL_DATA" ]] || mkdir -p "$PANEL_DATA" 2>/dev/null; then
   "domain": "${DOMAIN}",
   "email": "${EMAIL}",
   "serverIp": "${SERVER_IP_NOW}",
-  "adminPassword": "",
   "proxyUsers": [
     {
       "username": "${LOGIN}",

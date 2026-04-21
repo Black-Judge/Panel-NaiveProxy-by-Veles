@@ -44,9 +44,14 @@ function saveConfig(config) {
 
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) {
+    // Читаем креды из окружения. Если их нет (запустили руками), ставим дефолт
+    const initialUser = process.env.ADMIN_USER || 'admin';
+    const initialPass = process.env.ADMIN_PASS || 'admin';
+
+    // Используем динамический ключ объекта (логин)
     const defaultUsers = {
-      admin: {
-        password: bcrypt.hashSync('admin', 10),
+      [initialUser]: {
+        password: bcrypt.hashSync(initialPass, 10),
         role: 'admin'
       }
     };
