@@ -256,7 +256,7 @@ app.post('/api/service/:action', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 //  ИСПРАВЛЕННЫЙ УМНЫЙ ГЕНЕРАТОР CADDYFILE
 // ─────────────────────────────────────────────
-function updateCaddyfile(config, callback) {
+function updateCaddyfile(config, res, callback) {
   let basicAuthLines = '';
   if (config.proxyUsers && config.proxyUsers.length > 0) {
     basicAuthLines = config.proxyUsers
@@ -265,15 +265,18 @@ function updateCaddyfile(config, callback) {
       .join('\n');
   }
 
-  // 1. Умный выбор сертификатов для ядра NaiveProxy
-  let tlsLine = `tls ${config.email}`;
+  // 1. Умный TLS с защитой от пустого email
+  let tlsLine = '';
   const certPath = `/etc/letsencrypt/live/${config.domain}/fullchain.pem`;
   const keyPath = `/etc/letsencrypt/live/${config.domain}/privkey.pem`;
   
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     tlsLine = `tls ${certPath} ${keyPath}`;
-  } else if (!config.email) {
-    tlsLine = `tls internal`; // Защита от падения, если email пустой
+  } else if (config.email && config.email.trim() !== '') {
+    tlsLine = `tls ${config.email.trim()}`;
+  } else {
+    // ЖЕЛЕЗОБЕТОННЫЙ ФОЛЛБЕК (если email пустой)
+    tlsLine = `tls admin@${config.domain}`; 
   }
 
   let caddyfileContent = `{
@@ -296,16 +299,18 @@ ${basicAuthLines}
 }
 `;
 
-  // 2. ВОССТАНОВЛЕНИЕ БЛОКА ПАНЕЛИ (Если включен доступ через Caddy)
+  // 2. ВОССТАНОВЛЕНИЕ БЛОКА ПАНЕЛИ
   if (config.accessMode === "2" && config.panelDomain) {
-    let pTlsLine = `tls ${config.panelEmail}`;
+    let pTlsLine = '';
     const pCertPath = `/etc/letsencrypt/live/${config.panelDomain}/fullchain.pem`;
     const pKeyPath = `/etc/letsencrypt/live/${config.panelDomain}/privkey.pem`;
 
     if (fs.existsSync(pCertPath) && fs.existsSync(pKeyPath)) {
       pTlsLine = `tls ${pCertPath} ${pKeyPath}`;
-    } else if (!config.panelEmail) {
-      pTlsLine = `tls internal`;
+    } else if (config.panelEmail && config.panelEmail.trim() !== '') {
+      pTlsLine = `tls ${config.panelEmail.trim()}`;
+    } else {
+      pTlsLine = `tls admin@${config.panelDomain}`;
     }
 
     caddyfileContent += `\n${config.panelDomain} {\n  ${pTlsLine}\n  reverse_proxy 127.0.0.1:${process.env.PORT || 3000}\n}\n`;
@@ -318,6 +323,7 @@ ${basicAuthLines}
   }
 
   exec('systemctl reload-or-restart caddy', (error) => {
+    if (error) console.error("Ошибка применения конфига Caddy:", error);
     if (callback) callback();
   });
 }

@@ -48,10 +48,14 @@ fi
 rebuild_caddyfile() {
     local domain email p_domain p_email acc_mode
     domain=$(jq -r '.domain' "${PANEL_DIR}/panel/data/config.json")
-    email=$(jq -r '.email' "${PANEL_DIR}/panel/data/config.json")
+    email=$(jq -r '.email // empty' "${PANEL_DIR}/panel/data/config.json")
     p_domain=$(jq -r '.panelDomain // empty' "${PANEL_DIR}/panel/data/config.json")
     p_email=$(jq -r '.panelEmail // empty' "${PANEL_DIR}/panel/data/config.json")
     acc_mode=$(jq -r '.accessMode // "1"' "${PANEL_DIR}/panel/data/config.json")
+
+    # ЗАЩИТА ОТ ПУСТОГО EMAIL
+    [[ -z "$email" ]] && email="admin@$domain"
+    [[ -z "$p_email" && -n "$p_domain" ]] && p_email="admin@$p_domain"
 
     {
         printf '{\n  order forward_proxy before file_server\n}\n\n'
@@ -78,7 +82,7 @@ rebuild_caddyfile() {
             printf '%s {\n' "$p_domain"
             if [[ -f "/etc/letsencrypt/live/$p_domain/fullchain.pem" ]]; then
                 printf '  tls /etc/letsencrypt/live/%s/fullchain.pem /etc/letsencrypt/live/%s/privkey.pem\n' "$p_domain" "$p_domain"
-            elif [[ -n "$p_email" ]]; then
+            else
                 printf '  tls %s\n' "$p_email"
             fi
             printf '  reverse_proxy 127.0.0.1:%s\n' "$INTERNAL_PORT"
@@ -86,7 +90,8 @@ rebuild_caddyfile() {
         fi
     } > /etc/caddy/Caddyfile
 
-    caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1
+    # Надежная перезагрузка (reload или restart если упал)
+    caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || systemctl restart caddy >/dev/null 2>&1
 }
 
 # ════════════════════════════════════════════════════════════════════════
